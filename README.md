@@ -21,36 +21,12 @@ browser's built-in time-zone database (`Intl`).
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    user(["Visitor's browser"])
-    dev(["Developer<br/>npm run build → out/"])
-
-    subgraph aws["AWS"]
-        subgraph cf["Amazon CloudFront (global edge)"]
-            fn["CloudFront Function<br/>/path/ → /path/index.html"]
-            cache["Edge cache<br/>+ gzip / Brotli"]
-        end
-        oac{{"Origin Access Control<br/>signs requests (SigV4)"}}
-        subgraph s3["Amazon S3 — private bucket"]
-            policy["Bucket policy<br/>allow GetObject only from<br/>this distribution"]
-            files[("Static files<br/>HTML, JS, CSS, map data")]
-        end
-    end
-
-    user -- "HTTPS" --> fn
-    fn --> cache
-    cache -- "cache miss" --> oac
-    oac --> policy
-    policy --> files
-    user -. "direct S3 URL: 403<br/>(public access blocked)" .-x files
-
-    dev -- "aws s3 sync" --> files
-    dev -. "invalidate /*" .-> cache
-```
+![Architecture: Route 53, AWS WAF, CloudFront with Origin Access Control, and a private S3 bucket](docs/architecture/s3-cloudfront-oac.png)
 
 | Service / feature           | Role                                                                   |
 | --------------------------- | ---------------------------------------------------------------------- |
+| **Amazon Route 53**         | Hosted zone for the custom domain; alias record to the distribution.   |
+| **AWS WAF**                 | Web ACL on the distribution; filters requests at the edge.             |
 | **Amazon S3**               | Stores the built site. Block Public Access is ON; no website hosting.  |
 | **Bucket policy**           | Lets only this CloudFront distribution read objects (`s3:GetObject`).  |
 | **Origin Access Control**   | CloudFront signs its requests to S3, so the bucket can stay private.   |
@@ -59,8 +35,9 @@ flowchart LR
 | **Response headers policy** | Adds security headers (HSTS, CSP, …). Recommended, optional.           |
 | **AWS CLI** (`deploy.sh`)   | Uploads `out/` to S3 and invalidates the CloudFront cache.             |
 
-**Request flow:** browser → CloudFront (function rewrites the path, cache answers if it
-can) → OAC-signed request → S3 → response cached at the edge. Nobody can read the bucket
+**Request flow:** browser → Route 53 resolves the domain to CloudFront → WAF web ACL
+checks the request → CloudFront (function rewrites the path, cache answers if it can) →
+OAC-signed request → S3 → response cached at the edge. Nobody can read the bucket
 directly.
 
 ## Run locally
